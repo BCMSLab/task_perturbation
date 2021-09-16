@@ -214,8 +214,6 @@ simp_plot <- ggplot() +
   scale_y_continuous(sec.axis = dup_axis(), limits = c(-8.5, 8.5)) +
   my_theme
 
-?simplex_projection
-
 plot_grid(rss_plot,
           simp_plot,
           scale = .9, 

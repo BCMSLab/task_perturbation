@@ -1,3 +1,6 @@
 [submodule "output/manuscript"]
 	path = output/manuscript
 	url = https://git.overleaf.com/61302d39e773d1e6f2136ff2
+[submodule "output/manuscript_pnas"]
+	path = output/manuscript_pnas
+	url = https://git.overleaf.com/61429b4f2af31f6bd5d35a82
