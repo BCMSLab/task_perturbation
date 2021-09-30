@@ -62,7 +62,7 @@ mats <- mats[map(mats, ncol) > 1]
 ind <- intersect(names(mats), rownames(cancer_cells_genes_average))
 names(ind) <- ind
 
-# for each cell calculate the correaltions
+# for each cell calculate the correlations
 corrs <- map_df(ind, function(c) {
   # fold change
   x <- mats[[c]]
@@ -210,8 +210,8 @@ simp_plot <- ggplot() +
   geom_text(data = proj_z, aes(x = x, y = y,
                                 label = paste0('A', 1:6)),
              color = 'red') +
-  scale_x_continuous(sec.axis = dup_axis(), limits = c(-8.5, 8.5)) +
-  scale_y_continuous(sec.axis = dup_axis(), limits = c(-8.5, 8.5)) +
+  scale_x_continuous(sec.axis = dup_axis(), limits = c(-10, 10)) +
+  scale_y_continuous(sec.axis = dup_axis(), limits = c(-10, 10)) +
   my_theme
 
 plot_grid(rss_plot,
