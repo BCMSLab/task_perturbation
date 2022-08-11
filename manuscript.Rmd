@@ -1,0 +1,292 @@
+---
+title: "Archetype Analysis of Cancer Cells"
+author: "Mahmoud Ahmed"
+date: "3/3/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+# Load libraries
+
+```{r load_libraries}
+library(tidyverse)
+library(reshape2)
+library(SummarizedExperiment)
+library(broom)
+library(archetypes)
+library(cowplot)
+library(latex2exp)
+```
+
+# Gene expression
+
+```{r gene_expression}
+# load gene expression data
+gene_expression <- read_rds('output/gene_expression.rds')
+gene_expression_averages <- read_csv('output/gene_expression_averages.csv')
+```
+
+# Drug response
+
+```{r drug_response}
+# load drug response data
+drug_response <- read_rds('output/drug_response.rds')
+```
+
+# The correlation between expression averages and drug response
+
+```{r expression_response_correlation}
+# tidy the expression variable
+var1 <- melt(gene_expression_averages) %>% 
+  as_tibble() %>%
+  setNames(c('cell_id', 'symbol', 'expression'))
+
+# tidy the response variable
+var2 <- melt(assay(drug_response)) %>% 
+  as_tibble() %>%
+  separate(Var2, c('cell_id', 'drug')) %>%
+  select(symbol = Var1, score = value, everything())
+
+# calculate the correlations
+expression_response_correlation <- group_split(var2, drug, cell_id) %>%
+  map_df(~{
+    inner_join(.x, var1) %>%
+      summarise(cell_id = unique(cell_id),
+                drug = unique(drug),
+                cor = cor(expression, score, method = 'spearman'))
+  })
+```
+
+```{r test_correlations}
+# apply ks tests
+# for drug
+expression_response_correlation %>%
+  group_by(drug) %>%
+  summarise(cor_ave = mean(cor)) %>%
+  with(ks.test(cor_ave, rnorm, alternative = 'greater'))
+
+# for cell
+expression_response_correlation %>%
+  group_by(drug) %>%
+  summarise(cor_ave = mean(cor)) %>%
+  with(ks.test(cor_ave, rnorm, alternative = 'greater'))
+```
+
+```{r correlations_by_quantiles}
+# calculate the response by gene expression quantiles
+correlations_by_quantiles <- 
+group_split(var2, drug, cell_id) %>%
+  map_df(~{
+    inner_join(.x, var1) %>%
+      mutate(quant = cut(expression,
+                        breaks = quantile(expression, probs = seq(0, 1, .2)),
+                        include.lowest = TRUE),
+             quant_label = as.factor(as.numeric(quant))) %>%
+      group_by(quant, quant_label) %>%
+      summarise(cell_id = unique(cell_id),
+                drug = unique(drug),
+                score_ave = mean(score),
+                expression_ave = mean(expression),
+                cor = cor(expression, score, method = 'spearman'))
+  })
+```
+
+```{r plot_expression_response_correlations}
+plot_grid(
+  # show the negative correlation between expression and response to drugs
+  expression_response_correlation %>%
+    ggplot(aes(x = cor, y = ..density..)) +
+    geom_histogram() +
+    geom_vline(xintercept = 0, color = 'red', lty = 2),
+  # stratify the correlations by cell line and drug
+  expression_response_correlation %>%
+    pivot_longer(c('cell_id', 'drug')) %>%
+    ggplot(aes(x = cor, fill = name, y = ..density..)) +
+    geom_histogram() +
+    geom_vline(xintercept = 0, color = 'red') +
+    theme(legend.position = 'top'),
+  # show average correlations are not random
+  ggplot() +
+    stat_ecdf(data = group_by(expression_response_correlation, drug) %>% summarise(cor_ave = mean(cor)),
+              aes(x = cor_ave)) +
+    stat_ecdf(data = group_by(expression_response_correlation, cell_id) %>% summarise(cor_ave = mean(cor)),
+              aes(x = cor_ave)),
+  # average score
+  correlations_by_quantiles %>%
+    ggplot(aes(x = quant_label, y = score_ave)) +
+    geom_boxplot(),
+  nrow = 2,
+  scale = .9, 
+  labels = 'AUTO',
+  label_fontface = 'plain') %>%
+  ggsave(plot = .,
+         filename = 'report/manuscriptfigures/expression_response_correlations.png',
+         width = 6, height = 6)
+```
+
+# Archetype analysis
+
+```{r load_archetypes}
+# load archetypes
+cell_archetypes <- read_rds('output/archetypes.rds')
+cell_archtype_6 <- read_rds('output/archetypes_6k.rds')
+```
+
+```{r plot_archetypes}
+plot_grid(
+  # the residual sum of square errors
+  rowMeans(rss(cell_archetypes), na.rm = TRUE) %>%
+    melt(value.name = 'RSS') %>%
+    mutate(K = 1:10) %>%
+    ggplot(aes(x = K, y = RSS)) +
+    geom_line() +
+    scale_x_continuous(breaks = 1:10),
+  # simplex
+  with(simplexplot(cell_archtype_6), {
+    ggplot() +
+    geom_point(data = as_tibble(proj_h), aes(x = x, y = y), shape = 'square') +
+    geom_text(data = as_tibble(proj_z), aes(x = x, y = y,
+                                  label = paste0('A', 1:6)),
+               color = 'red')
+}),
+  nrow = 1,
+  scale = .9, 
+  labels = 'AUTO',
+  label_fontface = 'plain') %>%
+  ggsave(plot = .,
+         filename = 'report/manuscriptfigures/archetypes.png',
+         width = 6, height = 3)
+```
+
+```{r load_distances}
+# load distances
+cell_distances <- read_csv('output/cell_distances.csv')
+# make table
+```
+
+# Multdimensional scaling
+
+```{r load_mds}
+# load multi-dimensional scaling
+mds <- read_csv('output/dimension_scaling.csv')
+```
+
+```{r plot_mds}
+plot_grid(
+  # by tissue 
+  mds %>%
+  ggplot(aes(x = D1, y = D2, color = tissue)) +
+  geom_point() +
+  theme(legend.position = 'none'),
+  # by archetype
+  mds %>%
+    ggplot(aes(x = D1, y = D2, color = as.factor(archetype))) +
+    geom_point() +
+    theme(legend.position = 'none'),
+    nrow = 1,
+    scale = .9, 
+    labels = 'AUTO',
+    label_fontface = 'plain'
+) %>%
+    ggsave(plot = .,
+         filename = 'report/manuscriptfigures/mds.png',
+         width = 6, height = 3)
+```
+
+# Variance partition
+
+```{r load_variance_partition}
+# load variance partition
+var_part <- read_csv('output/variance_partition.csv')
+```
+
+```{r plot_variance_partition}
+# show amount of variance explained by each variable
+(var_part %>%
+  melt() %>%
+  as_tibble() %>%
+  ggplot(aes(x = variable, y = value)) +
+  geom_boxplot()) %>%
+  ggsave(plot = .,
+         filename = 'report/manuscriptfigures/variance_partition.png',
+         width = 3, height = 3)
+```
+
+# Enrichment analysis
+
+```{r load_enrichment}
+# load enrichment data
+archetype_enrichment <- read_csv('output/archetype_enrichment.csv')
+response_enrichment <- read_csv('output/response_enrichment.csv')
+```
+
+```{r plot_enrichment_archetype}
+# by archetype
+(archetype_enrichment %>%
+  filter(qvalues < .1) %>%
+  ggplot(aes(x = archetype, y = ID, size = NES, color = NES > 0)) +
+  geom_point()) %>%
+  ggsave(plot = .,
+         filename = 'report/manuscriptfigures/enrichment_archetype.png',
+         width = 6, height = 4)
+```
+
+# Connecting enrichment in archetype and drug response
+
+```{r join_enrichment}
+# join archetype and drug response enrichment
+archetype_enrichment_distance <- cell_distances %>%
+  inner_join(select(archetype_enrichment, archetype, ID, A_NES = NES)) %>%
+  inner_join(select(response_enrichment, cell_id, drug, ID, R_NES = NES)) %>%
+  ungroup()
+```
+
+# Connect to drug response to growth rates
+
+```{r growth_rates}
+# load growth rate data
+growth_rates <- read_csv('output/growth_rates.csv')
+```
+
+```{r plot_archetype_correlation_effect}
+plot_grid(
+  # show enrichment in archetype correlate with enrihcment in response to drugs
+  archetype_enrichment_distance %>%
+    filter(dss < 120) %>%
+    group_by(cell_id, archetype, ID) %>%
+    summarise_at(vars(ends_with('NES')), mean) %>%
+    ungroup() %>%
+    mutate(group = cut(abs(R_NES), 4, labels = c('<.47', '(.47,.95]', '(.95,1.4]', '(1.4,1.9]'))) %>%
+    group_by(group) %>%
+    summarise(corr = cor(A_NES, R_NES, use = 'complete')) %>%
+    ggplot(aes(x = group, y = corr)) +
+    geom_col(fill = 'white', color = 'black', width = .8) + 
+    theme(axis.text.x = element_text(size = 9)) +
+    labs(y = 'PCC; with drug response',
+         x = 'Enrichment in archetype (absolute)') +
+    my_theme,
+  # show growth rates correlate with expression response correlation
+  inner_join(expression_response_correlation, growth_rates) %>%
+    group_by(cell_id, drug) %>%
+    top_n(-1, grmax) %>%
+    mutate(cor = cut(cor, c(-.4, -.3,-.2, -.1, 0, .1, .2),
+                     labels = c('(-.4,-.3]','(-.3,-.2]','(-.2,-.1]','(-.1,0]','(0,.1]','(.1,.2]'))) %>%
+    ggplot(aes(x = cor, y = grmax)) +
+    geom_boxplot() +
+    geom_hline(yintercept = 0, lty = 2, color = 'red') +
+    theme(axis.text.x = element_text(size = 7)) +
+    labs(x = 'Expression Change Correlation',
+         y = 'Max Growth Inhibition') +
+    my_theme,
+  nrow = 1,
+  scale = .9,
+  labels = 'AUTO',
+  label_fontface = 'plain'
+) %>%
+  ggsave(plot = .,
+         filename = 'report/manuscriptfigures/archetype_correlation_effect.eps',
+         width = 6, height = 3)
+```

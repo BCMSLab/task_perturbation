@@ -1,0 +1,9 @@
+[submodule "presentation"]
+	path = report/presentation
+	url = https://git.overleaf.com/62196c8a6f6da47537283e5f
+[submodule "presentation2"]
+	path = report/presentation2
+	url = https://git.overleaf.com/623ab0a09e345316dfac634b
+[submodule "report/manuscript"]
+	path = report/manuscript
+	url = https://git.overleaf.com/626fd8bd1093ee6627c2b7fc
